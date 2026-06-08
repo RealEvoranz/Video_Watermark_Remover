@@ -74,6 +74,7 @@ python main.py test-phase1 input.mp4 output.mp4 --chunk-size 30
 ```
 video_watermark_remover/
 ├── main.py
+├── run_batch.py   # Batch processing
 ├── config.json
 ├── gui/           # PySide6 interface
 ├── processing/    # Video I/O, chunking, FFmpeg, pipeline
