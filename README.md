@@ -20,6 +20,8 @@ pip install -r requirements.txt
 
 **Important:** The default `pip install torch` often installs a **CPU-only** build. Your RTX GPU will not be used until you install CUDA PyTorch:
 
+**OLDER GPUS:** You may have to use https://download.pytorch.org/whl/cu126 instead of 128
+
 ```bash
 pip uninstall torch torchvision -y
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
