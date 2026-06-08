@@ -1,0 +1,25 @@
+{
+  "paths": {
+    "models_dir": "models",
+    "cache_dir": "cache",
+    "output_dir": "output"
+  },
+  "processing": {
+    "default_backend": "e2fgvi",
+    "default_chunk_size": "auto",
+    "chunk_overlap": 10,
+    "output_codec": "libx264",
+    "output_format": "mp4",
+    "output_crf": 18
+  },
+  "gui": {
+    "default_brush_size": 20,
+    "mask_overlay_alpha": 0.45,
+    "mask_overlay_color": [255, 0, 0]
+  },
+  "download": {
+    "chunk_size_bytes": 1048576,
+    "timeout_seconds": 300,
+    "max_retries": 5
+  }
+}
