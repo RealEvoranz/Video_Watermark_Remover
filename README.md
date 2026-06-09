@@ -148,3 +148,4 @@ For distribution, use PyInstaller:
 pip install pyinstaller
 pyinstaller --name "VideoWatermarkRemover" --windowed main.py
 ```
+test
