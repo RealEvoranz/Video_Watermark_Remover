@@ -54,10 +54,18 @@ class SettingsDialog(QDialog):
         if index >= 0:
             self.backend_combo.setCurrentIndex(index)
 
+        self.chunk_combo = QComboBox()
+        self.chunk_combo.addItems(["Auto", "4", "8", "12", "16", "24", "32", "48", "64"])
+        default_chunk = str(proc_cfg.get("default_chunk_size", "auto")).capitalize()
+        if default_chunk not in [self.chunk_combo.itemText(i) for i in range(self.chunk_combo.count())]:
+            default_chunk = "Auto"
+        self.chunk_combo.setCurrentText(default_chunk)
+
         form = QFormLayout(self)
         form.addRow("Default brush size:", self.brush_spin)
         form.addRow("Mask overlay opacity:", self.alpha_spin)
         form.addRow("Output quality (CRF):", self.crf_spin)
+        form.addRow("Default chunk size:", self.chunk_combo)
         form.addRow("Chunk overlap:", self.overlap_spin)
         form.addRow("Skip start (seconds):", self.skip_spin)
         form.addRow("Default backend:", self.backend_combo)
@@ -91,6 +99,10 @@ class SettingsDialog(QDialog):
         return self.skip_spin.value()
 
     @property
+    def default_chunk_size(self) -> str:
+        return self.chunk_combo.currentText().lower()
+
+    @property
     def default_backend(self) -> str:
         return self.backend_combo.currentText()
 
@@ -106,6 +118,7 @@ class SettingsDialog(QDialog):
         # Update processing settings
         proc_cfg = cfg.get("processing", {})
         proc_cfg["output_crf"] = int(self.output_crf)
+        proc_cfg["default_chunk_size"] = str(self.default_chunk_size)
         proc_cfg["chunk_overlap"] = int(self.chunk_overlap)
         proc_cfg["default_backend"] = str(self.default_backend)
         proc_cfg["skip_start_seconds"] = int(self.skip_start_seconds)

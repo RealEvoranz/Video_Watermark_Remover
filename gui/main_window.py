@@ -6,10 +6,11 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from PySide6.QtCore import QObject, QThread, Signal, Qt
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtCore import QObject, QThread, QUrl, Signal, Qt
+from PySide6.QtGui import QAction, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QComboBox,
     QFileDialog,
     QFormLayout,
@@ -21,7 +22,9 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSlider,
     QSpinBox,
+    QSizePolicy,
     QSplitter,
+    QStackedLayout,
     QToolBar,
     QVBoxLayout,
     QWidget,
@@ -74,6 +77,50 @@ class ProcessingWorker(QObject):
             self._pipeline.cancel()
 
 
+class OpenHintLabel(QLabel):
+    clicked = Signal()
+    fileDropped = Signal(Path)
+
+    def __init__(self, text: str, parent=None) -> None:
+        super().__init__(text, parent)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setStyleSheet(
+            "color: gray; font-size: 14px; background: rgba(255,255,255,0.85);"
+        )
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setAcceptDrops(True)
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
+
+    def dragEnterEvent(self, event) -> None:
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                if url.isLocalFile() and Path(url.toLocalFile()).suffix.lower() in [
+                    ".mp4",
+                    ".mov",
+                    ".mkv",
+                    ".avi",
+                ]:
+                    event.acceptProposedAction()
+                    return
+        event.ignore()
+
+    def dropEvent(self, event) -> None:
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                if url.isLocalFile():
+                    path = Path(url.toLocalFile())
+                    if path.suffix.lower() in [".mp4", ".mov", ".mkv", ".avi"]:
+                        self.fileDropped.emit(path)
+                        event.acceptProposedAction()
+                        return
+        event.ignore()
+
+
 class MainWindow(QMainWindow):
     """Primary application window."""
 
@@ -95,7 +142,12 @@ class MainWindow(QMainWindow):
         self._chunk_overlap = int(proc_cfg.get("chunk_overlap", 5))
         self._output_crf = int(proc_cfg.get("output_crf", 18))
         self._default_backend = proc_cfg.get("default_backend", "e2fgvi")
+        self._default_chunk_size = proc_cfg.get("default_chunk_size", "auto")
         self._skip_start_seconds = int(proc_cfg.get("skip_start_seconds", 0))
+
+        self._preserve_audio = True
+        self._reencode = True
+        self._output_path: Path | None = None
 
         self._mask_editor = MaskEditor()
         self._worker_thread: QThread | None = None
@@ -105,6 +157,7 @@ class MainWindow(QMainWindow):
         self._build_toolbar()
         self._build_ui()
         self._connect_signals()
+        self.setAcceptDrops(True)
 
     def _build_toolbar(self) -> None:
         toolbar = QToolBar("Main")
@@ -139,6 +192,9 @@ class MainWindow(QMainWindow):
         self.clear_mask_button = QPushButton("Clear Mask")
         self.reset_view_button = QPushButton("Reset View")
 
+        for button in (self.rect_button, self.brush_button, self.eraser_button):
+            button.setCheckable(True)
+
         left_layout.addWidget(self.rect_button)
         left_layout.addWidget(self.brush_button)
         left_layout.addWidget(self.eraser_button)
@@ -159,13 +215,26 @@ class MainWindow(QMainWindow):
         center_panel = QGroupBox("Video")
         center_layout = QVBoxLayout(center_panel)
 
-        self.frame_slider = QSlider(Qt.Orientation.Horizontal)
-        self.frame_label = QLabel("Frame: 0 / 0")
+        self.open_hint_label = OpenHintLabel(
+            "Click To Open a Video or Drag and Drop One Here."
+        )
+
         self.video_widget = VideoWidget()
+        self.video_widget.setAcceptDrops(True)
         self.video_widget.set_overlay_style(
             (self._overlay_color[2], self._overlay_color[1], self._overlay_color[0]),
             self._overlay_alpha,
         )
+
+        video_holder = QWidget()
+        self.video_holder_layout = QStackedLayout(video_holder)
+        self.video_holder_layout.addWidget(self.video_widget)
+        self.video_holder_layout.addWidget(self.open_hint_label)
+        self.video_holder_layout.setCurrentWidget(self.open_hint_label)
+
+        self.frame_slider = QSlider(Qt.Orientation.Horizontal)
+        self.frame_label = QLabel("Frame: 0 / 0")
+        self.video_metadata_label = QLabel("Resolution: -- | FPS: -- | Duration: -- | Current: --")
 
         nav_row = QHBoxLayout()
         self.prev_frame_button = QPushButton("◀")
@@ -174,9 +243,10 @@ class MainWindow(QMainWindow):
         nav_row.addWidget(self.frame_slider, stretch=1)
         nav_row.addWidget(self.next_frame_button)
 
-        center_layout.addWidget(self.video_widget, stretch=1)
+        center_layout.addWidget(video_holder, stretch=1)
         center_layout.addLayout(nav_row)
         center_layout.addWidget(self.frame_label)
+        center_layout.addWidget(self.video_metadata_label)
 
         # Right panel - processing
         right_panel = QGroupBox("Processing")
@@ -187,15 +257,22 @@ class MainWindow(QMainWindow):
         self.backend_combo = QComboBox()
         self.backend_combo.addItems(["E2FGVI", "ProPainter", "Passthrough (Test)"])
         backend_map = {"e2fgvi": 0, "propainter": 1, "passthrough": 2}
-        self.backend_combo.setCurrentIndex(
-            backend_map.get(self._default_backend, 0)
-        )
+        self.backend_combo.setCurrentIndex(backend_map.get(self._default_backend, 0))
         form_layout.addRow("Backend:", self.backend_combo)
 
+        self.backend_info_label = QLabel(self._backend_description(self._default_backend))
+        self.backend_info_label.setWordWrap(True)
+        self.backend_info_label.setStyleSheet("color: #555;")
+        right_layout.addLayout(form_layout)
+        right_layout.addWidget(self.backend_info_label)
+
+        form_layout = QFormLayout()
         self.chunk_combo = QComboBox()
-        self.chunk_combo.addItems(
-            ["Auto", "4", "8", "12", "16", "24", "32", "48", "64"]
-        )
+        self.chunk_combo.addItems(["Auto", "4", "8", "12", "16", "24", "32", "48", "64"])
+        default_chunk_text = str(self._default_chunk_size).capitalize()
+        if default_chunk_text not in [self.chunk_combo.itemText(i) for i in range(self.chunk_combo.count())]:
+            default_chunk_text = "Auto"
+        self.chunk_combo.setCurrentText(default_chunk_text)
         form_layout.addRow("Chunk Size:", self.chunk_combo)
 
         self.skip_spin = QSpinBox()
@@ -204,7 +281,39 @@ class MainWindow(QMainWindow):
         self.skip_spin.setSuffix(" s")
         form_layout.addRow("Skip Start:", self.skip_spin)
 
+        self.crf_spin = QSpinBox()
+        self.crf_spin.setRange(0, 51)
+        self.crf_spin.setValue(self._output_crf)
+        self.crf_spin.setToolTip(
+            "Lower CRF gives higher video quality and larger output size. "
+            "Higher CRF gives smaller output size with lower quality."
+        )
+        form_layout.addRow("Output CRF:", self.crf_spin)
+
+        self.crf_help_label = QLabel(
+            "Lower CRF = higher quality / larger file. Higher CRF = smaller file / lower quality."
+        )
+        self.crf_help_label.setWordWrap(True)
+        self.crf_help_label.setStyleSheet("color: #777; font-size: 11px;")
+
+        self.preserve_audio_checkbox = QCheckBox("Preserve audio")
+        self.preserve_audio_checkbox.setChecked(self._preserve_audio)
+        self.reencode_checkbox = QCheckBox("Re-encode output")
+        self.reencode_checkbox.setChecked(self._reencode)
+
         right_layout.addLayout(form_layout)
+        right_layout.addWidget(self.crf_help_label)
+        right_layout.addWidget(self.preserve_audio_checkbox)
+        right_layout.addWidget(self.reencode_checkbox)
+        right_layout.addSpacing(10)
+
+        self.output_path_label = QLabel("Output: -")
+        self.output_path_label.setWordWrap(True)
+        self.open_output_folder_button = QPushButton("Open output folder")
+        self.open_output_folder_button.setEnabled(False)
+
+        right_layout.addWidget(self.output_path_label)
+        right_layout.addWidget(self.open_output_folder_button)
         right_layout.addSpacing(10)
 
         self.start_button = QPushButton("Start")
@@ -233,6 +342,47 @@ class MainWindow(QMainWindow):
 
         root_layout.addWidget(splitter)
 
+        self.video_status_label = QLabel("No video loaded. Open or drop one.")
+        self.statusBar().addPermanentWidget(self.video_status_label)
+
+    def _update_backend_info(self, _: int | None = None) -> None:
+        backend = self._backend_name()
+        self.backend_info_label.setText(self._backend_description(backend))
+
+    def _description_for_backend(self, backend: str) -> str:
+        descriptions = {
+            "e2fgvi": "E2FGVI: best for high-quality watermark removal on general video. Use this backend for most edits.",
+            "propainter": "ProPainter: useful for challenging motion and texture guidance when E2FGVI artifacts appear.",
+            "passthrough": "Passthrough: test mode only — it copies video without processing and is useful for debugging.",
+        }
+        return descriptions.get(backend, "Select a backend for processing.")
+
+    def _backend_description(self, backend: str) -> str:
+        return self._description_for_backend(backend)
+
+    def _open_output_folder(self) -> None:
+        if not self._output_path:
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(self._output_path.parent)))
+
+    def _update_output_path_label(self) -> None:
+        if self._output_path:
+            self.output_path_label.setText(f"Output: {self._output_path}")
+            self.open_output_folder_button.setEnabled(True)
+        else:
+            self.output_path_label.setText("Output: -")
+            self.open_output_folder_button.setEnabled(False)
+
+    def _update_tool_buttons(self) -> None:
+        active = self.video_widget._tool
+        self.rect_button.setChecked(active == ToolMode.RECTANGLE)
+        self.brush_button.setChecked(active == ToolMode.BRUSH)
+        self.eraser_button.setChecked(active == ToolMode.ERASER)
+
+    def _update_undo_redo_buttons(self) -> None:
+        self.undo_button.setEnabled(self._mask_editor.can_undo)
+        self.redo_button.setEnabled(self._mask_editor.can_redo)
+
     def _connect_signals(self) -> None:
         self.open_action.triggered.connect(self._open_video)
         self.save_mask_action.triggered.connect(self._save_mask)
@@ -257,9 +407,15 @@ class MainWindow(QMainWindow):
 
         self.video_widget.mask_edit_began.connect(self._on_mask_edit_began)
         self.video_widget.mask_changed.connect(self._on_mask_edited)
+        self.open_hint_label.clicked.connect(self._open_video)
+        self.open_hint_label.fileDropped.connect(self._open_video_path)
+
+        self.backend_combo.currentIndexChanged.connect(self._update_backend_info)
+        self.open_output_folder_button.clicked.connect(self._open_output_folder)
 
     def _set_tool(self, tool: ToolMode) -> None:
         self.video_widget.set_tool(tool)
+        self._update_tool_buttons()
 
     def _on_brush_size_changed(self, value: int) -> None:
         self._brush_size = value
@@ -277,29 +433,12 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            if self._reader:
-                self._reader.close()
-
-            self._reader = VideoReader(path)
-            self._video_path = Path(path)
-            meta = self._reader.metadata
-
-            self._mask_editor.resize(meta.width, meta.height)
-            self.video_widget.set_mask(self._mask_editor.mask)
-            self.video_widget.set_brush_size(self._brush_size)
-            self._set_tool(ToolMode.RECTANGLE)
-
-            self.frame_slider.setRange(0, max(0, meta.frame_count - 1))
-            self._current_frame_index = 0
-            self.frame_slider.setValue(0)
-            self._show_frame(0)
-
-            self.status_label.setText(f"Loaded: {self._video_path.name}")
-            self._update_coverage()
-            self.video_widget.reset_view()
-
+            self._open_video_path(Path(path))
         except Exception as exc:
             QMessageBox.critical(self, "Error", f"Failed to open video:\n{exc}")
+
+    def _on_hint_clicked(self, event) -> None:
+        self._open_video()
 
     def _show_frame(self, index: int) -> None:
         if not self._reader:
@@ -313,10 +452,35 @@ class MainWindow(QMainWindow):
             self.frame_label.setText(
                 f"Frame: {index + 1} / {self._reader.metadata.frame_count}"
             )
+            self._update_video_metadata()
 
     def _on_frame_changed(self, index: int) -> None:
         if index != self._current_frame_index:
             self._show_frame(index)
+
+    def _update_video_metadata(self) -> None:
+        if not self._reader:
+            self.video_metadata_label.setText(
+                "Resolution: -- | FPS: -- | Duration: -- | Current: --"
+            )
+            self.video_status_label.setText("No video loaded. Open or drop one.")
+            return
+
+        meta = self._reader.metadata
+        duration_text = self._format_timestamp(meta.duration_seconds)
+        current_text = self._format_timestamp(self._current_frame_index / max(1.0, meta.fps))
+        self.video_metadata_label.setText(
+            f"Resolution: {meta.width}x{meta.height} | FPS: {meta.fps:.2f} | Duration: {duration_text} | Current: {current_text}"
+        )
+        self.video_status_label.setText(
+            f"Loaded: {self._video_path.name} | {meta.width}x{meta.height} @ {meta.fps:.2f}"
+        )
+
+    def _format_timestamp(self, seconds: float) -> str:
+        seconds = max(0.0, seconds)
+        minutes, secs = divmod(int(seconds), 60)
+        hours, minutes = divmod(minutes, 60)
+        return f"{hours:d}:{minutes:02d}:{secs:02d}"
 
     def _prev_frame(self) -> None:
         if self.frame_slider.value() > 0:
@@ -334,24 +498,28 @@ class MainWindow(QMainWindow):
         if mask is not None:
             self._mask_editor.update_mask(mask)
         self._update_coverage()
+        self._update_undo_redo_buttons()
 
     def _undo_mask(self) -> None:
         mask = self._mask_editor.undo()
         if mask is not None:
             self.video_widget.set_mask(mask)
             self._update_coverage()
+        self._update_undo_redo_buttons()
 
     def _redo_mask(self) -> None:
         mask = self._mask_editor.redo()
         if mask is not None:
             self.video_widget.set_mask(mask)
             self._update_coverage()
+        self._update_undo_redo_buttons()
 
     def _clear_mask(self) -> None:
         self._mask_editor.clear()
         if self._mask_editor.mask is not None:
             self.video_widget.set_mask(self._mask_editor.mask)
             self._update_coverage()
+        self._update_undo_redo_buttons()
 
     def _save_mask(self) -> None:
         if self._mask_editor.mask is None:
@@ -393,6 +561,7 @@ class MainWindow(QMainWindow):
             self._mask_editor.load(mask)
             self.video_widget.set_mask(mask)
             self._update_coverage()
+            self._update_undo_redo_buttons()
             self.status_label.setText(f"Mask loaded: {Path(path).name}")
         except Exception as exc:
             QMessageBox.critical(self, "Error", f"Failed to load mask:\n{exc}")
@@ -405,6 +574,7 @@ class MainWindow(QMainWindow):
             self._output_crf = dialog.output_crf
             self._chunk_overlap = dialog.chunk_overlap
             self._default_backend = dialog.default_backend
+            self._default_chunk_size = dialog.default_chunk_size
             self._skip_start_seconds = dialog.skip_start_seconds
 
             self.brush_slider.setValue(self._brush_size)
@@ -412,6 +582,7 @@ class MainWindow(QMainWindow):
             self.backend_combo.setCurrentIndex(
                 backend_map.get(self._default_backend, 0)
             )
+            self.chunk_combo.setCurrentText(str(self._default_chunk_size).capitalize())
             self.video_widget.set_overlay_style(
                 (self._overlay_color[2], self._overlay_color[1], self._overlay_color[0]),
                 self._overlay_alpha,
@@ -462,11 +633,19 @@ class MainWindow(QMainWindow):
         if not output_path:
             return
 
+        self._output_path = Path(output_path)
+        self._update_output_path_label()
         self._skip_start_seconds = self.skip_spin.value()
+        self._preserve_audio = self.preserve_audio_checkbox.isChecked()
+        self._reencode = self.reencode_checkbox.isChecked()
+        self._output_crf = self.crf_spin.value()
+
         pipeline_config = PipelineConfig(
             backend_name=self._backend_name(),
             chunk_size=self._chunk_size(),
             chunk_overlap=self._chunk_overlap,
+            preserve_audio=self._preserve_audio,
+            reencode=self._reencode,
             output_crf=self._output_crf,
             skip_start_seconds=self._skip_start_seconds,
         )
@@ -478,7 +657,7 @@ class MainWindow(QMainWindow):
         self._worker = ProcessingWorker(
             self._video_path,
             self._mask_editor.mask.copy(),
-            Path(output_path),
+            self._output_path,
             pipeline_config,
         )
         self._worker_thread = QThread()
@@ -493,7 +672,7 @@ class MainWindow(QMainWindow):
 
         self._processing_dialog.cancel_button.clicked.connect(self._cancel_processing)
         self._worker_thread.start()
-        self._processing_dialog.exec()
+        self._processing_dialog.show()
 
     def _on_processing_progress(self, progress) -> None:
         if self._processing_dialog:
@@ -505,10 +684,23 @@ class MainWindow(QMainWindow):
 
         if self._processing_dialog:
             self._processing_dialog.update_progress(progress)
+            if progress.finished or progress.error:
+                self._processing_dialog.close()
 
         if progress.finished and not progress.error:
             self.status_label.setText(progress.message)
-            QMessageBox.information(self, "Complete", progress.message)
+            self._update_output_path_label()
+            dialog = QMessageBox(self)
+            dialog.setWindowTitle("Complete")
+            dialog.setText(progress.message)
+            open_button = dialog.addButton(
+                "Open output folder",
+                QMessageBox.ButtonRole.ActionRole,
+            )
+            dialog.addButton(QMessageBox.StandardButton.Ok)
+            dialog.exec()
+            if dialog.clickedButton() == open_button:
+                self._open_output_folder()
         elif progress.error:
             QMessageBox.critical(self, "Processing Error", progress.error)
 
@@ -517,6 +709,58 @@ class MainWindow(QMainWindow):
             self._worker.cancel()
         if self._processing_dialog and not self._processing_dialog.is_cancelled:
             self._processing_dialog._on_cancel()  # noqa: SLF001
+
+    def dragEnterEvent(self, event) -> None:
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                if url.isLocalFile() and Path(url.toLocalFile()).suffix.lower() in [
+                    ".mp4",
+                    ".mov",
+                    ".mkv",
+                    ".avi",
+                ]:
+                    event.acceptProposedAction()
+                    return
+        event.ignore()
+
+    def dropEvent(self, event) -> None:
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                if url.isLocalFile():
+                    path = Path(url.toLocalFile())
+                    if path.suffix.lower() in [".mp4", ".mov", ".mkv", ".avi"]:
+                        self._open_video_path(path)
+                        event.acceptProposedAction()
+                        return
+        event.ignore()
+
+    def _open_video_path(self, path: Path) -> None:
+        try:
+            if self._reader:
+                self._reader.close()
+
+            self._reader = VideoReader(path)
+            self._video_path = path
+            meta = self._reader.metadata
+
+            self._mask_editor.resize(meta.width, meta.height)
+            self.video_widget.set_mask(self._mask_editor.mask)
+            self.video_widget.set_brush_size(self._brush_size)
+            self._set_tool(ToolMode.RECTANGLE)
+
+            self.frame_slider.setRange(0, max(0, meta.frame_count - 1))
+            self._current_frame_index = 0
+            self._show_frame(0)
+            self.open_hint_label.hide()
+            self.video_holder_layout.setCurrentWidget(self.video_widget)
+
+            self.status_label.setText(f"Loaded: {self._video_path.name}")
+            self._update_coverage()
+            self._update_undo_redo_buttons()
+            self._update_video_metadata()
+            self.video_widget.reset_view()
+        except Exception as exc:
+            QMessageBox.critical(self, "Error", f"Failed to open video:\n{exc}")
 
     def closeEvent(self, event) -> None:
         if self._reader:

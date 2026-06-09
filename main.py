@@ -30,31 +30,72 @@ def run_gui() -> int:
 def run_cli(args: argparse.Namespace) -> int:
     """Run headless processing from the command line."""
     import numpy as np
+    import traceback
 
+    from processing.config_loader import get_masks_dir, get_output_dir, load_config
     from processing.mask_utils import load_mask
     from processing.pipeline import PipelineConfig, ProcessingPipeline
     from processing.video_reader import VideoReader
 
-    mask = load_mask(args.mask)
+    config = load_config()
+    proc_cfg = config.get("processing", {})
 
-    # Determine skip seconds: explicit seconds preferred, otherwise convert frames->seconds
-    skip_seconds = 0.0
+    backend = args.backend or proc_cfg.get("default_backend", "e2fgvi")
+    chunk_size = args.chunk_size if args.chunk_size is not None else proc_cfg.get("default_chunk_size", "auto")
+    if chunk_size != "auto":
+        try:
+            chunk_size = int(chunk_size)
+        except ValueError:
+            print(
+                f"Invalid chunk size '{chunk_size}'. Use 'auto' or an integer.",
+                file=sys.stderr,
+            )
+            return 1
+
+    overlap = args.overlap if args.overlap is not None else int(proc_cfg.get("chunk_overlap", 5))
+    crf = args.crf if args.crf is not None else int(proc_cfg.get("output_crf", 18))
+    preserve_audio = not args.no_audio
+    reencode = not args.no_reencode
+
+    if args.verbose:
+        print(f"Using backend={backend}, chunk_size={chunk_size}, overlap={overlap}, skip_seconds={args.skip_seconds}, crf={crf}")
+
+    input_path = args.input
+    mask_path = Path(args.mask)
+    if args.mask_dir:
+        mask_path = Path(args.mask_dir) / mask_path
+    if not mask_path.is_absolute():
+        mask_path = Path.cwd() / mask_path
+
+    output_path = Path(args.output)
+    if args.output_dir:
+        output_path = Path(args.output_dir) / output_path
+    if not output_path.is_absolute():
+        output_path = Path.cwd() / output_path
+
+    skip_seconds = None
     if getattr(args, "skip_seconds", None) is not None:
         skip_seconds = float(args.skip_seconds)
     elif getattr(args, "skip_frames", None) is not None:
-        with VideoReader(args.input) as vr:
-            fps = vr.metadata.fps or 30.0
-        skip_seconds = float(args.skip_frames) / float(fps)
+        try:
+            with VideoReader(input_path) as vr:
+                fps = vr.metadata.fps or 30.0
+            skip_seconds = float(args.skip_frames) / float(fps)
+        except Exception as exc:
+            print(f"Failed to determine skip frames: {exc}", file=sys.stderr)
+            if args.verbose:
+                traceback.print_exc()
+            return 1
+    else:
+        skip_seconds = float(proc_cfg.get("skip_start_seconds", 0))
 
-    config = PipelineConfig(
-        backend_name=args.backend,
-        chunk_size="auto" if args.chunk_size == "auto" else int(args.chunk_size),
-        chunk_overlap=args.overlap,
-        preserve_audio=not args.no_audio,
-        reencode=not args.no_reencode,
-        output_crf=args.crf,
-        skip_start_seconds=skip_seconds,
-    )
+    try:
+        mask = load_mask(mask_path)
+    except Exception as exc:
+        print(f"Error loading mask '{mask_path}': {exc}", file=sys.stderr)
+        if args.verbose:
+            traceback.print_exc()
+        return 1
 
     def on_progress(progress) -> None:
         print(
@@ -63,16 +104,34 @@ def run_cli(args: argparse.Namespace) -> int:
             flush=True,
         )
 
-    pipeline = ProcessingPipeline(config=config, progress_callback=on_progress)
-    result = pipeline.process(args.input, mask, args.output)
-    print()
+    try:
+        pipeline = ProcessingPipeline(
+            config=PipelineConfig(
+                backend_name=backend,
+                chunk_size=chunk_size,
+                chunk_overlap=overlap,
+                preserve_audio=preserve_audio,
+                reencode=reencode,
+                output_crf=crf,
+                skip_start_seconds=skip_seconds,
+            ),
+            progress_callback=on_progress,
+        )
+        result = pipeline.process(input_path, mask, output_path)
+    except Exception as exc:
+        print(f"Processing failed: {exc}", file=sys.stderr)
+        if args.verbose:
+            traceback.print_exc()
+        return 1
 
+    print()
     if result.error:
         print(f"Error: {result.error}", file=sys.stderr)
         return 1
     if result.cancelled:
         print("Cancelled.")
         return 2
+
     print(result.message)
     return 0
 
@@ -132,21 +191,26 @@ def build_parser() -> argparse.ArgumentParser:
         "-b",
         "--backend",
         choices=["e2fgvi", "propainter", "passthrough"],
-        default="e2fgvi",
+        default=None,
     )
     process_parser.add_argument(
         "--chunk-size",
-        default="auto",
+        default=None,
         help="Chunk size or 'auto'",
     )
-    process_parser.add_argument("--overlap", type=int, default=5)
+    process_parser.add_argument("--overlap", type=int, default=None)
     process_parser.add_argument("--skip-seconds", type=float, default=None,
                                 help="Skip this many seconds at start (overrides frames)")
     process_parser.add_argument("--skip-frames", type=int, default=None,
                                 help="Skip this many frames at start")
-    process_parser.add_argument("--crf", type=int, default=18)
+    process_parser.add_argument("--crf", type=int, default=None)
+    process_parser.add_argument("--output-dir", type=Path, default=None,
+                                help="Optional base output directory for relative paths")
+    process_parser.add_argument("--mask-dir", type=Path, default=None,
+                                help="Optional base mask directory for relative paths")
     process_parser.add_argument("--no-audio", action="store_true")
     process_parser.add_argument("--no-reencode", action="store_true")
+    process_parser.add_argument("--verbose", action="store_true")
 
     test_parser = subparsers.add_parser(
         "test-phase1",

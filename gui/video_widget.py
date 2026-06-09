@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from enum import Enum
+from pathlib import Path
 
 import cv2
 import numpy as np
 from PySide6.QtCore import QPoint, QPointF, Qt, Signal
-from PySide6.QtGui import QImage, QMouseEvent, QPainter, QPixmap, QWheelEvent
+from PySide6.QtGui import QDragEnterEvent, QDropEvent, QImage, QMouseEvent, QPainter, QPixmap, QWheelEvent
 from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsScene, QGraphicsView
 
 from processing.mask_utils import create_overlay
@@ -94,6 +95,32 @@ class VideoWidget(QGraphicsView):
         if self._pixmap_item.pixmap().isNull():
             return
         self.fitInView(self._pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
+
+    def dragEnterEvent(self, event: QMouseEvent) -> None:
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                if url.isLocalFile() and Path(url.toLocalFile()).suffix.lower() in [
+                    ".mp4",
+                    ".mov",
+                    ".mkv",
+                    ".avi",
+                ]:
+                    event.acceptProposedAction()
+                    return
+        event.ignore()
+
+    def dropEvent(self, event: QMouseEvent) -> None:
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                if url.isLocalFile():
+                    path = Path(url.toLocalFile())
+                    if path.suffix.lower() in [".mp4", ".mov", ".mkv", ".avi"]:
+                        main_window = self.window()
+                        if hasattr(main_window, "_open_video_path"):
+                            main_window._open_video_path(path)
+                            event.acceptProposedAction()
+                            return
+        event.ignore()
 
     def _refresh_display(self) -> None:
         if self._frame is None:

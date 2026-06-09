@@ -9,7 +9,7 @@
     "default_backend": "e2fgvi",
     "default_chunk_size": "auto",
     "chunk_overlap": 10,
-    "skip_start_seconds": 2,
+    "skip_start_seconds": 0,
     "output_codec": "libx264",
     "output_format": "mp4",
     "output_crf": 18
