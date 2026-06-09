@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -48,11 +49,17 @@ class SettingsDialog(QDialog):
         self.skip_spin.setValue(int(proc_cfg.get("skip_start_seconds", 0)))
 
         self.backend_combo = QComboBox()
-        self.backend_combo.addItems(["e2fgvi", "propainter", "passthrough"])
+        self.backend_combo.addItem("E2FGVI", "e2fgvi")
+        self.backend_combo.addItem("ProPainter (Coming Soon)", "propainter")
+        self.backend_combo.addItem("Passthrough", "passthrough")
         default_backend = proc_cfg.get("default_backend", "e2fgvi")
-        index = self.backend_combo.findText(default_backend)
+        if default_backend == "propainter":
+            default_backend = "e2fgvi"
+        index = self.backend_combo.findData(default_backend)
         if index >= 0:
             self.backend_combo.setCurrentIndex(index)
+        if self.backend_combo.model().item(1) is not None:
+            self.backend_combo.model().item(1).setEnabled(False)
 
         self.chunk_combo = QComboBox()
         self.chunk_combo.addItems(["Auto", "4", "8", "12", "16", "24", "32", "48", "64"])
@@ -104,7 +111,7 @@ class SettingsDialog(QDialog):
 
     @property
     def default_backend(self) -> str:
-        return self.backend_combo.currentText()
+        return str(self.backend_combo.currentData() or self.backend_combo.currentText())
 
     def _on_accept(self) -> None:
         """Persist updated settings to config.json then accept the dialog."""

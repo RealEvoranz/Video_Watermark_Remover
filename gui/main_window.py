@@ -142,6 +142,8 @@ class MainWindow(QMainWindow):
         self._chunk_overlap = int(proc_cfg.get("chunk_overlap", 5))
         self._output_crf = int(proc_cfg.get("output_crf", 18))
         self._default_backend = proc_cfg.get("default_backend", "e2fgvi")
+        if self._default_backend == "propainter":
+            self._default_backend = "e2fgvi"
         self._default_chunk_size = proc_cfg.get("default_chunk_size", "auto")
         self._skip_start_seconds = int(proc_cfg.get("skip_start_seconds", 0))
 
@@ -255,9 +257,16 @@ class MainWindow(QMainWindow):
         form_layout = QFormLayout()
 
         self.backend_combo = QComboBox()
-        self.backend_combo.addItems(["E2FGVI", "ProPainter", "Passthrough (Test)"])
+        self.backend_combo.addItems(["E2FGVI", "ProPainter (Coming Soon)", "Passthrough (Test)"])
         backend_map = {"e2fgvi": 0, "propainter": 1, "passthrough": 2}
         self.backend_combo.setCurrentIndex(backend_map.get(self._default_backend, 0))
+        if self.backend_combo.model().item(1) is not None:
+            self.backend_combo.model().item(1).setEnabled(False)
+        self.backend_combo.setItemData(
+            1,
+            "ProPainter is coming soon in a future release.",
+            Qt.ToolTipRole,
+        )
         form_layout.addRow("Backend:", self.backend_combo)
 
         self.backend_info_label = QLabel(self._backend_description(self._default_backend))
@@ -352,7 +361,7 @@ class MainWindow(QMainWindow):
     def _description_for_backend(self, backend: str) -> str:
         descriptions = {
             "e2fgvi": "E2FGVI: best for high-quality watermark removal on general video. Use this backend for most edits.",
-            "propainter": "ProPainter: useful for challenging motion and texture guidance when E2FGVI artifacts appear.",
+            "propainter": "ProPainter is coming soon in a future release.",
             "passthrough": "Passthrough: test mode only — it copies video without processing and is useful for debugging.",
         }
         return descriptions.get(backend, "Select a backend for processing.")

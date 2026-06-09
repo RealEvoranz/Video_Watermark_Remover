@@ -1,6 +1,6 @@
 # AI Video Watermark Remover with Chunking
 
-Windows desktop application for removing video watermarks using AI video inpainting using lower resources. Supports E2FGVI - Future support for ProPainter- and generic backends with chunked processing for long videos.
+Windows desktop application for removing video watermarks using AI video inpainting using lower resources. Supports E2FGVI. ProPainter is planned for a future release, while passthrough remains available for testing.
 
 ## Requirements
 
@@ -36,7 +36,7 @@ Verify GPU detection:
 python scripts/check_gpu.py
 ```
 
-Verify all dependencies (app + E2FGVI + ProPainter):
+Verify all dependencies (app + E2FGVI):
 
 ```bash
 python scripts/check_dependencies.py
@@ -123,7 +123,7 @@ video_watermark_remover/
 ├── config.json
 ├── gui/           # PySide6 interface
 ├── processing/    # Video I/O, chunking, FFmpeg, pipeline
-├── backends/      # E2FGVI, ProPainter, passthrough
+├── backends/      # E2FGVI, passthrough, ProPainter planned
 ├── models/        # Download registry and resumable downloader
 ├── cache/         # Temporary processing files
 └── output/        # Default output directory
@@ -131,11 +131,11 @@ video_watermark_remover/
 
 ## Model Downloads
 
-Models are downloaded automatically on first use to `models/e2fgvi/` and `models/propainter/`.
+Models are downloaded automatically on first use to `models/e2fgvi/`.
 
 | Backend | Source | Notes |
 |---------|--------|-------|
-| **ProPainter** | GitHub release v0.1.0 | Works out of the box |
+| **ProPainter** | GitHub release v0.1.0 | Planned support in a future release |
 | **E2FGVI** | Hugging Face mirror | No official GitHub release exists |
 
 If E2FGVI auto-download fails, manually download `E2FGVI-HQ-CVPR22.pth` from [Google Drive](https://drive.google.com/file/d/10wGdKSUOie0XmCr8SQ2A2FeDe-mfn5w3/view) and place it in `models/e2fgvi/weights/`.
