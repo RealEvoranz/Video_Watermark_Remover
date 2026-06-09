@@ -10,10 +10,11 @@ Windows desktop application for removing video watermarks using AI video inpaint
 - FFmpeg (or `imageio-ffmpeg` bundled via pip)
 
 ## Installation
-Easiest way: Run install.bat
+**Run install.bat**
 
 **OLDER GPUS:** You may have to use https://download.pytorch.org/whl/cu126 instead of 128
 
+**Manual Install:**
 ```bash
 cd video_watermark_remover
 python -m venv .venv
