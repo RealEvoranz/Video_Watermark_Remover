@@ -1,6 +1,15 @@
-# AI Video Watermark Remover
+# AI Video Watermark Remover with Chunking
 
 Windows desktop application for removing video watermarks using AI video inpainting. Supports E2FGVI and ProPainter backends with chunked processing for long videos.
+
+## Why Chunking?
+Long-form video inpainting is notoriously difficult because AI models have strict limits on how many frames they can process at once. Most tools crash when processing anything longer than a few seconds. 
+
+Our application uses **Intelligent Chunking** to solve this:
+
+* **RAM Efficiency:** Instead of loading thousands of frams into RAM at once, the app processes the video in manageable, bite-sized segments resulting in 1 -3GB instead of dozens. This allows you to process high-resolution, long-form content even on consumer GPUs with limited hardware (like a GTX 1080).
+* **High-Fidelity Quality:** By processing in smaller chunks, the model can maintain sharper focus on the masked area. We utilize a sliding window approach with frame-overlap, ensuring that the transition between one chunk and the next is seamless and flicker-free.
+* **Stability:** If your computer encounters a hiccup, you aren't forced to restart a 2-hour render. The app manages the sequence, ensuring that each part of your video is treated with the same level of precision, regardless of the total video length.
 
 ## Requirements
 
