@@ -2,7 +2,8 @@
   "paths": {
     "models_dir": "models",
     "cache_dir": "cache",
-    "output_dir": "output"
+    "output_dir": "output",
+    "masks_dir": "masks"
   },
   "processing": {
     "default_backend": "e2fgvi",

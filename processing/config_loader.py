@@ -45,3 +45,11 @@ def get_output_dir(config: dict[str, Any] | None = None) -> Path:
     path = resolve_path(cfg["paths"]["output_dir"], cfg)
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def get_masks_dir(config: dict[str, Any] | None = None) -> Path:
+    """Return the masks storage directory."""
+    cfg = config or load_config()
+    path = resolve_path(cfg["paths"]["masks_dir"], cfg)
+    path.mkdir(parents=True, exist_ok=True)
+    return path

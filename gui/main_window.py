@@ -31,7 +31,7 @@ from gui.mask_editor import MaskEditor
 from gui.processing_dialog import ProcessingDialog
 from gui.settings_dialog import SettingsDialog
 from gui.video_widget import ToolMode, VideoWidget
-from processing.config_loader import get_output_dir, load_config
+from processing.config_loader import get_output_dir, get_masks_dir, load_config
 from processing.mask_utils import load_mask, save_mask
 from processing.pipeline import PipelineConfig, ProcessingPipeline
 from processing.video_reader import VideoReader
@@ -358,10 +358,14 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "No Mask", "Open a video and create a mask first.")
             return
 
+        masks_dir = get_masks_dir()
+        default_name = f"{self._video_path.stem}_mask.png" if self._video_path else "mask.png"
+        default_path = str(masks_dir / default_name)
+        
         path, _ = QFileDialog.getSaveFileName(
             self,
             "Save Mask",
-            "",
+            default_path,
             "PNG Images (*.png)",
         )
         if path:
@@ -373,10 +377,11 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "No Video", "Open a video first.")
             return
 
+        masks_dir = str(get_masks_dir())
         path, _ = QFileDialog.getOpenFileName(
             self,
             "Load Mask",
-            "",
+            masks_dir,
             "PNG Images (*.png)",
         )
         if not path:
