@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
     QFileDialog,
+    QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -94,6 +95,7 @@ class MainWindow(QMainWindow):
         self._chunk_overlap = int(proc_cfg.get("chunk_overlap", 5))
         self._output_crf = int(proc_cfg.get("output_crf", 18))
         self._default_backend = proc_cfg.get("default_backend", "e2fgvi")
+        self._skip_start_seconds = int(proc_cfg.get("skip_start_seconds", 0))
 
         self._mask_editor = MaskEditor()
         self._worker_thread: QThread | None = None
@@ -180,19 +182,30 @@ class MainWindow(QMainWindow):
         right_panel = QGroupBox("Processing")
         right_layout = QVBoxLayout(right_panel)
 
-        right_layout.addWidget(QLabel("Backend"))
+        form_layout = QFormLayout()
+
         self.backend_combo = QComboBox()
         self.backend_combo.addItems(["E2FGVI", "ProPainter", "Passthrough (Test)"])
         backend_map = {"e2fgvi": 0, "propainter": 1, "passthrough": 2}
         self.backend_combo.setCurrentIndex(
             backend_map.get(self._default_backend, 0)
         )
+        form_layout.addRow("Backend:", self.backend_combo)
 
-        right_layout.addWidget(QLabel("Chunk Size"))
         self.chunk_combo = QComboBox()
         self.chunk_combo.addItems(
             ["Auto", "4", "8", "12", "16", "24", "32", "48", "64"]
         )
+        form_layout.addRow("Chunk Size:", self.chunk_combo)
+
+        self.skip_spin = QSpinBox()
+        self.skip_spin.setRange(0, 600)
+        self.skip_spin.setValue(self._skip_start_seconds)
+        self.skip_spin.setSuffix(" s")
+        form_layout.addRow("Skip Start:", self.skip_spin)
+
+        right_layout.addLayout(form_layout)
+        right_layout.addSpacing(10)
 
         self.start_button = QPushButton("Start")
         self.pause_button = QPushButton("Pause")
@@ -203,8 +216,6 @@ class MainWindow(QMainWindow):
         self.status_label = QLabel("Open a video to begin.")
         self.coverage_label = QLabel("Mask coverage: 0%")
 
-        right_layout.addWidget(self.backend_combo)
-        right_layout.addWidget(self.chunk_combo)
         right_layout.addWidget(self.start_button)
         right_layout.addWidget(self.pause_button)
         right_layout.addWidget(self.cancel_button)
@@ -389,6 +400,7 @@ class MainWindow(QMainWindow):
             self._output_crf = dialog.output_crf
             self._chunk_overlap = dialog.chunk_overlap
             self._default_backend = dialog.default_backend
+            self._skip_start_seconds = dialog.skip_start_seconds
 
             self.brush_slider.setValue(self._brush_size)
             backend_map = {"e2fgvi": 0, "propainter": 1, "passthrough": 2}
@@ -445,11 +457,13 @@ class MainWindow(QMainWindow):
         if not output_path:
             return
 
+        self._skip_start_seconds = self.skip_spin.value()
         pipeline_config = PipelineConfig(
             backend_name=self._backend_name(),
             chunk_size=self._chunk_size(),
             chunk_overlap=self._chunk_overlap,
             output_crf=self._output_crf,
+            skip_start_seconds=self._skip_start_seconds,
         )
 
         self._processing_dialog = ProcessingDialog(self)

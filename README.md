@@ -54,10 +54,41 @@ You should see `cuda_available: True` and your GPU name (e.g. RTX 4050).
 python main.py gui
 ```
 
+New: In the Settings dialog there's a "Skip start (seconds)" option — set how many seconds to skip processing at the start (those seconds are copied unchanged to the output).
+
 ### CLI
 
 ```bash
-python main.py process input.mp4 mask.png -o output.mp4 --backend e2fgvi
+python main.py process input.mp4 mask.png -o output.mp4 [options]
+```
+
+Available CLI options:
+
+- `-b`, `--backend {e2fgvi, propainter, passthrough}`
+  - Default: `e2fgvi`
+- `--chunk-size SIZE`
+  - Accepts an integer or `auto`
+  - Default: `auto`
+- `--overlap INT`
+  - Temporal chunk overlap in frames
+  - Default: `5`
+- `--skip-seconds FLOAT`
+  - Skip the first N seconds of input video (copied unchanged to output)
+  - Overrides `--skip-frames` when both are provided
+- `--skip-frames INT`
+  - Skip the first N frames of input video (converted to seconds using source FPS)
+- `--crf INT`
+  - Output H.264 quality setting
+  - Default: `18`
+- `--no-audio`
+  - Do not preserve source audio in the output
+- `--no-reencode`
+  - Skip re-encoding and copy the processed video stream directly to the output
+
+Example:
+
+```bash
+python main.py process input.mp4 mask.png -o output.mp4 --backend e2fgvi --chunk-size 8 --overlap 5 --skip-frames 3 --crf 18
 ```
 
 ### Phase 1 verification (passthrough, no GPU models)

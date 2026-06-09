@@ -27,6 +27,7 @@ class PipelineConfig:
     preserve_audio: bool = True
     reencode: bool = True
     output_crf: int = 18
+    skip_start_seconds: int = 0
 
 
 ProgressCallback = Callable[[ProcessingProgress], None]
@@ -108,6 +109,7 @@ class ProcessingPipeline:
                 backend=backend,
                 chunk_size=self.config.chunk_size,
                 chunk_overlap=overlap,
+                skip_start_seconds=self.config.skip_start_seconds,
                 progress_callback=self.progress_callback,
             )
 

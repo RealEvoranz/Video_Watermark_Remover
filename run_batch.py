@@ -60,7 +60,8 @@ def main():
             "-o", str(out_video_path),
             "--backend", "e2fgvi",
             "--crf", "18",
-            "--chunk-size", "8"
+            "--chunk-size", "8",
+            "--skip-frames", "0",
         ]
         
         # Run the command and pipe terminal updates straight to the console screen

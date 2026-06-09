@@ -33,8 +33,19 @@ def run_cli(args: argparse.Namespace) -> int:
 
     from processing.mask_utils import load_mask
     from processing.pipeline import PipelineConfig, ProcessingPipeline
+    from processing.video_reader import VideoReader
 
     mask = load_mask(args.mask)
+
+    # Determine skip seconds: explicit seconds preferred, otherwise convert frames->seconds
+    skip_seconds = 0.0
+    if getattr(args, "skip_seconds", None) is not None:
+        skip_seconds = float(args.skip_seconds)
+    elif getattr(args, "skip_frames", None) is not None:
+        with VideoReader(args.input) as vr:
+            fps = vr.metadata.fps or 30.0
+        skip_seconds = float(args.skip_frames) / float(fps)
+
     config = PipelineConfig(
         backend_name=args.backend,
         chunk_size="auto" if args.chunk_size == "auto" else int(args.chunk_size),
@@ -42,6 +53,7 @@ def run_cli(args: argparse.Namespace) -> int:
         preserve_audio=not args.no_audio,
         reencode=not args.no_reencode,
         output_crf=args.crf,
+        skip_start_seconds=skip_seconds,
     )
 
     def on_progress(progress) -> None:
@@ -128,6 +140,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Chunk size or 'auto'",
     )
     process_parser.add_argument("--overlap", type=int, default=5)
+    process_parser.add_argument("--skip-seconds", type=float, default=None,
+                                help="Skip this many seconds at start (overrides frames)")
+    process_parser.add_argument("--skip-frames", type=int, default=None,
+                                help="Skip this many frames at start")
     process_parser.add_argument("--crf", type=int, default=18)
     process_parser.add_argument("--no-audio", action="store_true")
     process_parser.add_argument("--no-reencode", action="store_true")

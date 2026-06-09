@@ -48,6 +48,7 @@ class ChunkProcessor:
     backend: BaseBackend
     chunk_size: int | str = "auto"
     chunk_overlap: int = 5
+    skip_start_seconds: int = 0
     progress_callback: ProgressCallback | None = None
 
     _cancel_requested: bool = field(default=False, init=False)
@@ -126,6 +127,31 @@ class ChunkProcessor:
                     frame_size=(meta.width, meta.height),
                 ) as writer:
                     carry_over: list[np.ndarray] = []
+                    # Optionally skip processing of the initial N seconds
+                    skip_frames = min(int(self.skip_start_seconds * meta.fps), total_frames)
+                    if skip_frames > 0:
+                        initial = reader.read_chunk(skip_frames)
+                        if initial:
+                            writer.write_many(initial)
+                            frames_done += len(initial)
+
+                        remaining = max(0, total_frames - frames_done)
+                        if remaining > 0:
+                            total_chunks = max(1, (remaining + step - 1) // step)
+                        else:
+                            total_chunks = 0
+
+                        progress.frames_processed = frames_done
+                        progress.total_chunks = total_chunks
+                        progress.percent = (
+                            (frames_done / total_frames) * 100.0
+                            if total_frames > 0
+                            else 0.0
+                        )
+                        progress.message = (
+                            f"Skipping {frames_done} initial frames ({self.skip_start_seconds}s)"
+                        )
+                        self._emit(progress)
                     chunk_index = 0
 
                     while True:
