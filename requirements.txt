@@ -12,17 +12,9 @@ scipy>=1.11.0
 matplotlib>=3.7.0
 requests>=2.31.0
 PyYAML>=6.0.0
-
-# Install CUDA PyTorch separately (CPU-only pip default will NOT work with AI backends):
-#   pip uninstall torch torchvision -y
-#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
-torch>=2.1.0
-torchvision>=0.16.0
-
 # E2FGVI backend (mmcv-full is NOT used; built-in compat shim is provided)
 addict>=2.4.0
 scikit-image>=0.21.0
-
 # ProPainter backend
 einops>=0.7.0
 timm>=0.9.0
